@@ -1,33 +1,54 @@
-node {
-    def app
-
-    stage('Clone repository') {
-        /* repository cloned to our workspace */
-
-        checkout scm
+pipeline {
+  agent {
+    kubernetes {
+           //cloud 'kubernetes'
+      yaml """
+kind: Pod
+Metadata:
+      name: kaniko
+spec:
+  containers:
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:debug
+    imagePullPolicy: Always
+    command:
+    - cat
+     tty: true
+     volumeMounts:
+         - name: docker-config
+            mountPath: /kaniko/ .docker
+      volumes:
+          - name: docker-config
+             configMap:
+                  Name: docker-config  
+    - sleep
+    args:
+    - 9999999
+    volumeMounts:
+      - name: jenkins-docker-cfg
+        mountPath: /kaniko/.docker
+  volumes:
+  - name: jenkins-docker-cfg
+    projected:
+      sources:
+      - secret:
+          name: docker-credentials 
+          items:
+            - key: .dockerconfigjson
+              path: config.json
+"""
     }
-
-    stage('Build image') {
-        /* To builds the dockerimage */
-        //update your ECR registry URI
-        app = docker.build("544557330409.dkr.ecr.ap-south-1.amazonaws.com/demoapp")
-    }
-
-    stage('Test image') {
-        /* Try killing some white walkers for testing ;-) */
-
-        app.inside {
-            sh 'echo "Hurray !! Tests passed., Valar Morghulis "'
+  }
+  stages {
+    stage('Build with Kaniko') {
+      steps {
+        container(name: 'kaniko', shell: '/busybox/sh') {
+          sh '''#!/busybox/sh
+            echo "FROM jenkins/inbound-agent:latest" > Dockerfile
+            /kaniko/executor --context `pwd` --destination <docker-username>/hello-kaniko:latest 
+          '''
         }
+      }
     }
-
-    stage('Push image') {
-        /* Finally, we'll push the image */
-        //docker.withRegistry('https://registry.hub.docker.com', 'docker-hub-credentials') {
-        // update your ECR registry URI and jenkins crendential paramater
-        docker.withRegistry('https://544557330409.dkr.ecr.ap-south-1.amazonaws.com', 'ecr:ap-south-1:aws')    {
-            //app.push("${env.BUILD_NUMBER}")
-            app.push("latest")
-        }
-    }
+  }
 }
